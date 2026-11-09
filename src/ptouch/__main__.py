@@ -202,6 +202,12 @@ Examples:
         help="Do not send a feed margin command; print images exactly as supplied",
     )
     parser.add_argument(
+        "--vertical-offset",
+        type=int,
+        metavar="PX",
+        help="Pins to skip before the printable area (default: centre it on the tape)",
+    )
+    parser.add_argument(
         "--no-compression",
         action="store_true",
         help="Disable TIFF compression",
@@ -832,6 +838,7 @@ def main() -> int:
                 chain=args.chain,
                 mirror=args.mirror,
                 send_margin=send_margin,
+                vertical_offset=args.vertical_offset,
             )
         else:
             printer.print_multi(
@@ -842,6 +849,7 @@ def main() -> int:
                 chain=args.chain,
                 mirror=args.mirror,
                 send_margin=send_margin,
+                vertical_offset=args.vertical_offset,
             )
         print("Done.")
         return 0
