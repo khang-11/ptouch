@@ -16,6 +16,7 @@ A Python library for Brother P-touch label printers.
 - Heat shrink tube support (HSe 2:1 and 3:1 series on PT-E550W/P750W/P900/P900W/P950NW)
 - High resolution mode support
 - TIFF compression for efficient data transfer
+- Printer status queries (loaded media type/width, battery, error flags)
 
 ## Installation
 
@@ -162,6 +163,15 @@ ptouch "Asset Tag" --copies 5 --host 192.168.1.100 \
 # Print label with fixed width (50mm)
 ptouch "Short" --width 50 --host 192.168.1.100 \
     --printer P900 --tape-width 12
+
+# Query printer status over the network (media type/width and errors)
+ptouch --status --host 192.168.1.100
+
+# Query printer status as JSON
+ptouch --status --host 192.168.1.100 --json
+
+# Query printer status over USB
+ptouch --status --usb --printer P900W
 ```
 
 ### Python API
@@ -231,6 +241,28 @@ label = TextLabel(
 printer.print(label)
 ```
 
+#### Printer Status
+
+Read the loaded media type/width, battery level and error flags before
+printing. Over the network the status is fetched via SNMP (the raw print port
+is one-way); over USB the status request command is used.
+
+```python
+from ptouch import ConnectionNetwork, PTP900W, query_status_snmp
+
+# Network: query SNMP directly, without opening a print connection
+status = query_status_snmp("192.168.1.100")
+print(status.device_status)      # READY
+print(status.media_type_label)   # laminated tape
+print(status.media_width_mm)     # 24.0
+print(status.errors)             # ()
+
+# Or use get_status() on a printer instance (network dispatches to SNMP)
+connection = ConnectionNetwork("192.168.1.100")
+printer = PTP900W(connection)
+status = printer.get_status()
+```
+
 #### Multi-Label Printing
 
 Print multiple labels in a single job with half-cuts between labels to save tape:
@@ -275,22 +307,24 @@ Note: `Align` is also available as a backwards-compatible alias at package level
 ## CLI Options
 
 ```
-usage: ptouch [-h] [--image FILE] (--host IP | --usb)
-              --printer {E550W,P710BT,P750W,P900,P900W,P910BT,P950NW}
-              --tape-width {3.5,6,9,12,18,24,36} [--font PATH] [--font-size PX]
-              [--align H V] [--high-resolution] [--margin MM] [--no-compression]
-              [--full-cut] [--precut] [--copies N] [--width MM] [text ...]
+usage: ptouch [-h] [--image FILE] (--host IP | --usb [URI]) [--printer {...}]
+              [--tape-width {...} | --tube-width {...}] [--font PATH]
+              [--font-size PX] [--align H V] [--high-resolution] [--margin MM]
+              [--no-compression] [--full-cut] [--precut] [--copies N] [--width MM]
+              [--status] [--json] [--snmp-community COMMUNITY]
+              [--snmp-version {1,2c}] [text ...]
 
 positional arguments:
   text                  Text to print. Multiple strings create multiple labels
-                        with half-cut between (required unless --image is used)
+                        with half-cut between (required unless --image or
+                        --status is used)
 
 options:
   --image, -i FILE      Image file to print instead of text
   --host, -H IP         Printer IP address for network connection
   --usb                 Use USB connection
-  --printer, -p         Printer model
-  --tape-width, -t      Tape width in mm
+  --printer, -p         Printer model (required for printing; required with --usb for status)
+  --tape-width, -t      Tape width in mm (required for printing)
   --font, -f PATH       Path to TrueType font file (uses PIL default if not specified)
   --font-size PX        Font size in pixels (disables auto-sizing to 80% of print height)
   --align, -a H V       Horizontal and vertical alignment (default: center center)
@@ -303,7 +337,16 @@ options:
                         label starts at a fresh cut edge with no blank tape
   --copies, -c N        Number of copies to print (default: 1)
   --width, -w MM        Fixed label width in mm (default: auto-sized to content)
+  --status              Query printer status (media type/width, errors) instead of printing
+  --json                Print status as JSON (requires --status)
+  --snmp-community      SNMP read community for network status queries (default: public)
+  --snmp-version        SNMP version for network status queries: 1 or 2c (default: 2c)
 ```
+
+> **Note:** Status queries over the network use SNMP because Brother's raw
+> print port (TCP 9100) is a one-way pipe and does not answer status requests.
+> Only the read-only `public` community is required. Over USB the printer's
+> native status command is used instead.
 
 ## Error Handling
 

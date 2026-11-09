@@ -59,6 +59,7 @@ Documentation
 
    api/connection
    api/printer
+   api/status
    api/label
    api/tape
    api/exceptions

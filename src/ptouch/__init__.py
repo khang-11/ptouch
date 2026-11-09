@@ -40,6 +40,15 @@ from .connection import (
 from .label import Align, Label, TextLabel
 from .printer import LabelPrinter, MediaType, TapeConfig
 from .printers import PTE550W, PTP710BT, PTP750W, PTP900, PTP900W, PTP910BT, PTP950NW
+from .status import (
+    PhaseType,
+    PrinterStatus,
+    SnmpError,
+    StatusType,
+    parse_media_name,
+    parse_status_response,
+    query_status_snmp,
+)
 from .tape import (
     # Heat shrink tubes (HSe series)
     HeatShrinkTube,
@@ -80,6 +89,8 @@ __all__ = [
     # Enums
     "MediaType",
     "Align",
+    "StatusType",
+    "PhaseType",
     # Config
     "TapeConfig",
     # Connections
@@ -93,6 +104,12 @@ __all__ = [
     "PrinterTimeoutError",
     "PrinterWriteError",
     "parse_usb_uri",
+    # Status
+    "PrinterStatus",
+    "SnmpError",
+    "parse_status_response",
+    "parse_media_name",
+    "query_status_snmp",
     # Printers
     "LabelPrinter",
     "PTE550W",

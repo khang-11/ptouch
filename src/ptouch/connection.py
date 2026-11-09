@@ -220,6 +220,8 @@ class ConnectionUSB(Connection):
         USB product ID. If not specified, uses the printer's USB_PRODUCT_ID.
     serial : str, optional
         USB serial number to match a specific device when multiple are connected.
+    timeout : float, default 5.0
+        Timeout for USB reads and writes in seconds.
 
     Raises
     ------
@@ -246,12 +248,14 @@ class ConnectionUSB(Connection):
         vendor_id: int | None = None,
         product_id: int | None = None,
         serial: str | None = None,
+        timeout: float = 5.0,
     ) -> None:
         # Initialize attributes first so __del__ -> close() can run safely
         # if the pyusb-absent check raises below.
         self._vendor_id = vendor_id
         self._product_id = product_id
         self._serial = serial
+        self.timeout = timeout
         self._device: Any = None
         self._ep_in: Any = None
         self._ep_out: Any = None
@@ -375,7 +379,7 @@ class ConnectionUSB(Connection):
                 remaining = memoryview(payload)
                 total = len(payload)
                 while remaining:
-                    written = self._ep_out.write(bytes(remaining), timeout=5000)
+                    written = self._ep_out.write(bytes(remaining), timeout=int(self.timeout * 1000))
                     if written <= 0:
                         raise PrinterWriteError(
                             f"USB write stalled: {total - len(remaining)}/{total} bytes "
@@ -403,6 +407,45 @@ class ConnectionUSB(Connection):
                 "Check USB connection and ensure the printer is powered on.",
                 original_error=last_error,
             )
+
+    def read(self, num_bytes: int = 1024) -> bytes:
+        """Read data from the printer via USB.
+
+        Parameters
+        ----------
+        num_bytes : int, default 1024
+            Maximum number of bytes to read.
+
+        Returns
+        -------
+        bytes
+            Bytes received from the printer.
+
+        Raises
+        ------
+        PrinterConnectionError
+            If the connection has not been established or the read fails.
+        PrinterTimeoutError
+            If no data arrives before the USB timeout.
+        """
+        if self._ep_in is None:
+            raise PrinterConnectionError("Not connected to printer")
+
+        try:
+            return bytes(self._ep_in.read(num_bytes, timeout=int(self.timeout * 1000)))
+        except usb.core.USBError as e:
+            timeout_error = getattr(usb.core, "USBTimeoutError", None)
+            if (timeout_error is not None and isinstance(e, timeout_error)) or (
+                e.errno == errno.ETIMEDOUT
+            ):
+                raise PrinterTimeoutError(
+                    f"Read from USB printer timed out after {self.timeout}s",
+                    original_error=e,
+                ) from e
+            raise PrinterConnectionError(
+                f"Failed to read from USB printer: {e}",
+                original_error=e,
+            ) from e
 
     def close(self) -> None:
         """Close USB connection and reattach kernel driver if needed."""
