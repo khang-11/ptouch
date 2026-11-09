@@ -121,6 +121,11 @@ class PTP900Series(LabelPrinter):
     RESOLUTION_DPI_HIGH = 720
     DEFAULT_USE_COMPRESSION = False
 
+    # Measured on a PT-P900W with 24 mm TZe tape: the tape guide sits about
+    # 11 px below the print-head centre. Centring the printable area on the
+    # head alone leaves ~1 mm at the top and ~2.5 mm at the bottom.
+    TAPE_VERTICAL_OFFSET_PX = 11
+
     # Pin configurations from official Brother PT-P900 specification document
     # Source: cv_ptp900_eng_raster_102.pdf, pages 23-24, section 2.3.5 "Raster line"
     PIN_CONFIGS = {

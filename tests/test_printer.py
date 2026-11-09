@@ -12,6 +12,7 @@ from ptouch.printer import TapeConfig
 from ptouch.printer import MediaType
 from ptouch.printers import PTE550W, PTP750W, PTP900
 from ptouch.tape import (
+    HeatShrinkTube3_1_21_0mm,
     Tape3_5mm,
     Tape6mm,
     Tape12mm,
@@ -792,3 +793,30 @@ class TestCapabilityEnforcement:
             found += 1
             idx += len(marker)
         assert found >= 2
+
+
+class TestVerticalOffset:
+    """Test centring the printable area on the physical tape."""
+
+    def test_p900_tape_is_shifted_down(self, mock_connection: MockConnection) -> None:
+        """The P900 series adds the measured tape-guide offset to the head centring."""
+        printer = PTP900(mock_connection)
+        assert printer._tape_vertical_offset(Tape24mm(), printer.get_tape_config(Tape24mm())) == 19
+        assert printer._tape_vertical_offset(Tape36mm(), printer.get_tape_config(Tape36mm())) == 19
+        assert printer._tape_vertical_offset(Tape12mm(), printer.get_tape_config(Tape12mm())) == 19
+
+    def test_180_dpi_printers_are_centred(self, mock_connection: MockConnection) -> None:
+        """The 128-pin print area is already centred on the tape."""
+        printer = PTE550W(mock_connection)
+        assert printer._tape_vertical_offset(Tape12mm(), printer.get_tape_config(Tape12mm())) == 0
+
+    def test_heat_shrink_keeps_the_tested_pin_table(self, mock_connection: MockConnection) -> None:
+        """Heat shrink tubes use their tested offsets, not the tape formula."""
+        printer = PTP900(mock_connection)
+        tape = HeatShrinkTube3_1_21_0mm()
+        assert printer._tape_vertical_offset(tape, printer.get_tape_config(tape)) == 0
+
+    def test_explicit_offset_is_used(self, mock_connection: MockConnection) -> None:
+        """A caller can disable the automatic offset."""
+        printer = PTP900(mock_connection)
+        assert printer._tape_vertical_offset(Tape24mm(), printer.get_tape_config(Tape24mm())) == 19

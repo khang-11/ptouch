@@ -113,6 +113,11 @@ class LabelPrinter(ABC):
     DEFAULT_CHAIN_PRINTING: bool = False
     DEFAULT_SPECIAL_TAPE: bool = False
 
+    # Extra pins to skip so the printable area is centred on the physical tape.
+    # This is not part of Brother's pin tables: it compensates for the tape
+    # guide position. Subclasses override it from measurements on the hardware.
+    TAPE_VERTICAL_OFFSET_PX: int = 0
+
     @property
     def supports_high_resolution(self) -> bool:
         """Whether the printer supports high resolution mode."""
@@ -438,7 +443,44 @@ class LabelPrinter(ABC):
         threshold_table = [0] * 128 + [255] * 128
         return img_gray.point(threshold_table, mode="1")
 
-    def _generate_raster(self, img_1bit: Image.Image, tape_config: TapeConfig) -> bytes:
+    def _tape_vertical_offset(self, tape: Tape, tape_config: TapeConfig) -> int:
+        """Offset that centres the printable area on the physical tape.
+
+        Brother's pin tables describe the printable area, not the tape. On
+        the 560-pin P900 series the printable area is 8 px above the physical
+        tape centre, so an image printed at ``left_pins`` has less margin at
+        the top edge than at the bottom. Centre it on the tape instead.
+        Heat shrink tubes keep the offsets from their tested pin tables.
+
+        Parameters
+        ----------
+        tape : Tape
+            Tape or tube being printed on.
+        tape_config : TapeConfig
+            Pin configuration for this printer/tape combination.
+
+        Returns
+        -------
+        int
+            Additional pins to skip before the printable area (may be 0).
+        """
+        if isinstance(tape, HeatShrinkTube):
+            return 0
+        tape_px = tape.width_mm * self.RESOLUTION_DPI / 25.4
+        offset = (
+            (tape_px - tape_config.print_pins) / 2
+            + (self.TOTAL_PINS - tape_px) / 2
+            - tape_config.left_pins
+            + self.TAPE_VERTICAL_OFFSET_PX
+        )
+        return int(round(offset))
+
+    def _generate_raster(
+        self,
+        img_1bit: Image.Image,
+        tape_config: TapeConfig,
+        vertical_offset: int = 0,
+    ) -> bytes:
         """Generate raster data from 1-bit image.
 
         Parameters
@@ -471,7 +513,9 @@ class LabelPrinter(ABC):
             # Read print area pixels
             for row in range(config.print_pins):
                 # In 1-bit images: 0 = black (print), 255 = white (no print)
-                column_bits[config.left_pins + row] = 1 if pixels[column, row] == 0 else 0
+                column_bits[config.left_pins + vertical_offset + row] = (
+                    1 if pixels[column, row] == 0 else 0
+                )
 
             # Right margin pins are already 0 from initialization
 
@@ -486,7 +530,7 @@ class LabelPrinter(ABC):
 
             # Reset print area for next column (margins stay 0)
             for row in range(config.print_pins):
-                column_bits[config.left_pins + row] = 0
+                column_bits[config.left_pins + vertical_offset + row] = 0
 
         return bytes(raster)
 
@@ -762,6 +806,7 @@ class LabelPrinter(ABC):
         chain: bool | None = None,
         special_tape: bool | None = None,
         send_margin: bool = True,
+        vertical_offset: int | None = None,
     ) -> None:
         """Print a label using column-by-column raster format.
 
@@ -799,6 +844,10 @@ class LabelPrinter(ABC):
         send_margin : bool, default True
             Send the feed margin command. Set to False for image printing
             where the image already contains the desired margins.
+        vertical_offset : int or None, optional
+            Pins to skip before the printable area. None centres the
+            printable area on the tape (see ``_tape_vertical_offset``);
+            0 keeps Brother's documented pin table placement.
 
         Raises
         ------
@@ -816,7 +865,9 @@ class LabelPrinter(ABC):
         image = label.image
 
         img_1bit = self._prepare_image(image, tape_config)
-        raster = self._generate_raster(img_1bit, tape_config)
+        if vertical_offset is None:
+            vertical_offset = self._tape_vertical_offset(label.tape, tape_config)
+        raster = self._generate_raster(img_1bit, tape_config, vertical_offset)
         num_lines = image.width
 
         # Resolve margin and validate bounds
@@ -903,6 +954,7 @@ class LabelPrinter(ABC):
         chain: bool | None = None,
         special_tape: bool | None = None,
         send_margin: bool = True,
+        vertical_offset: int | None = None,
     ) -> None:
         """Print multiple labels with cuts between and after last.
 
@@ -944,6 +996,8 @@ class LabelPrinter(ABC):
         send_margin : bool, default True
             Send the feed margin command on every label. Forwarded to
             ``print()``.
+        vertical_offset : int or None, optional
+            Vertical offset in pins, forwarded to ``print()``.
 
         Raises
         ------
@@ -989,6 +1043,7 @@ class LabelPrinter(ABC):
                 chain=chain,
                 special_tape=special_tape,
                 send_margin=send_margin,
+                vertical_offset=vertical_offset,
             )
 
         logger.info(f"Finished printing {len(labels)} labels.")
