@@ -441,7 +441,8 @@ class TestPrinterGetStatus:
         with patch("ptouch.status.query_status_snmp", return_value=expected) as mock_query:
             status = printer.get_status(community="secret", snmp_version="1")
 
-        assert status is expected
+        assert status.media_width_mm == expected.media_width_mm
+        assert status.model == "PT-P900W"
         mock_query.assert_called_once_with(
             "192.0.2.1",
             community="secret",
@@ -506,13 +507,14 @@ class TestStatusCli:
         assert '"device_status": "READY"' in output
         assert '"media_width_mm": 24.0' in output
 
-    def test_usb_status_requires_printer(
+    def test_usb_status_without_printer(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """USB status queries need a printer model for the product id."""
+        """USB status queries auto-detect the printer and report when none is found."""
         monkeypatch.setattr(sys, "argv", ["ptouch", "--status", "--usb"])
-        assert main() == 1
-        assert "--printer is required" in capsys.readouterr().err
+        with patch("ptouch.__main__.discover_usb", return_value=[]):
+            assert main() == 1
+        assert "No supported Brother P-touch printer found" in capsys.readouterr().err
 
     def test_status_rejects_text(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

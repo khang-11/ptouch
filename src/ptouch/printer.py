@@ -7,7 +7,7 @@
 import logging
 import struct
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from math import ceil
 from typing import TYPE_CHECKING
@@ -512,6 +512,7 @@ class LabelPrinter(ABC):
         chain_printing: bool = False,
         mirror_print: bool = False,
         special_tape: bool = False,
+        send_margin: bool = True,
     ) -> bytes:
         """Build control sequence for a single page in a multi-page job.
 
@@ -538,6 +539,9 @@ class LabelPrinter(ABC):
         special_tape : bool, default False
             Enable special-tape no-cut mode. Effect is conditional on
             the printer detecting non-laminated decorative tape.
+        send_margin : bool, default True
+            Send the feed margin command (ESC i d). Set to False to print
+            an image exactly as supplied, matching ptouch-print's image mode.
 
         Returns
         -------
@@ -569,7 +573,8 @@ class LabelPrinter(ABC):
             high_resolution=high_resolution,
             special_tape=special_tape,
         )
-        control_seq += self._cmd_margin(margin)
+        if send_margin:
+            control_seq += self._cmd_margin(margin)
         control_seq += self._cmd_set_compression(tiff_compression=self.use_compression)
         return control_seq
 
@@ -683,13 +688,16 @@ class LabelPrinter(ABC):
         """
         from .status import STATUS_RESPONSE_LENGTH, parse_status_response, query_status_snmp
 
+        from .detect import enrich_status
+
         if isinstance(self.connection, ConnectionNetwork):
-            return query_status_snmp(
+            status = query_status_snmp(
                 self.connection.host,
                 community=community,
                 version=snmp_version,
                 timeout=timeout,
             )
+            return enrich_status(status, type(self))
 
         self.connection.write(self._cmd_status_request())
         data = b""
@@ -698,7 +706,9 @@ class LabelPrinter(ABC):
             if not chunk:
                 break
             data += chunk
-        return parse_status_response(data)
+        status = enrich_status(parse_status_response(data, model=type(self).MODEL_NAME), type(self))
+        serial = getattr(self.connection, "serial_number", None)
+        return replace(status, serial=serial) if serial else status
 
     def _resolve_feature(
         self,
@@ -751,6 +761,7 @@ class LabelPrinter(ABC):
         mirror: bool | None = None,
         chain: bool | None = None,
         special_tape: bool | None = None,
+        send_margin: bool = True,
     ) -> None:
         """Print a label using column-by-column raster format.
 
@@ -785,6 +796,9 @@ class LabelPrinter(ABC):
             Enable special-tape no-cut mode. If None, uses
             DEFAULT_SPECIAL_TAPE. Effect is conditional on the loaded
             cassette being non-laminated decorative tape.
+        send_margin : bool, default True
+            Send the feed margin command. Set to False for image printing
+            where the image already contains the desired margins.
 
         Raises
         ------
@@ -865,6 +879,7 @@ class LabelPrinter(ABC):
             chain_printing=chain,
             mirror_print=mirror,
             special_tape=special_tape,
+            send_margin=send_margin,
         )
 
         raster_data = self._build_raster_data(raster, num_lines, high_res)
@@ -887,6 +902,7 @@ class LabelPrinter(ABC):
         mirror: bool | None = None,
         chain: bool | None = None,
         special_tape: bool | None = None,
+        send_margin: bool = True,
     ) -> None:
         """Print multiple labels with cuts between and after last.
 
@@ -924,6 +940,9 @@ class LabelPrinter(ABC):
             ``print()`` call.
         special_tape : bool or None, optional
             Enable special-tape no-cut mode on every label. Forwarded to
+            ``print()``.
+        send_margin : bool, default True
+            Send the feed margin command on every label. Forwarded to
             ``print()``.
 
         Raises
@@ -969,6 +988,7 @@ class LabelPrinter(ABC):
                 mirror=mirror,
                 chain=chain,
                 special_tape=special_tape,
+                send_margin=send_margin,
             )
 
         logger.info(f"Finished printing {len(labels)} labels.")

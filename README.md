@@ -134,7 +134,10 @@ Then add the corresponding `TapeConfig` entries to each printer class that suppo
 When the package is installed, the `ptouch` command is available (or use `python -m ptouch` when running from source):
 
 ```bash
-# Print text label via network (uses PIL default font)
+# Print text label via network; model and tape are detected automatically
+ptouch "Hello World" --host 192.168.1.100
+
+# ...or set them explicitly to skip detection
 ptouch "Hello World" --host 192.168.1.100 --printer P900 --tape-width 36
 
 # Print with custom font
@@ -170,8 +173,15 @@ ptouch --status --host 192.168.1.100
 # Query printer status as JSON
 ptouch --status --host 192.168.1.100 --json
 
-# Query printer status over USB
-ptouch --status --usb --printer P900W
+# Query printer status over USB (printer detected automatically)
+ptouch --status --usb
+
+# Print an image exactly as supplied (no extra feed margin)
+ptouch --image logo.png --host 192.168.1.100 --no-margin
+
+# Find Brother printers on the network and on USB
+ptouch --scan 192.168.0/24 --json
+ptouch --list-connected --json
 ```
 
 ### Python API
@@ -307,40 +317,43 @@ Note: `Align` is also available as a backwards-compatible alias at package level
 ## CLI Options
 
 ```
-usage: ptouch [-h] [--image FILE] (--host IP | --usb [URI]) [--printer {...}]
-              [--tape-width {...} | --tube-width {...}] [--font PATH]
-              [--font-size PX] [--align H V] [--high-resolution] [--margin MM]
-              [--no-compression] [--full-cut] [--precut] [--copies N] [--width MM]
-              [--status] [--json] [--snmp-community COMMUNITY]
-              [--snmp-version {1,2c}] [text ...]
-
-positional arguments:
-  text                  Text to print. Multiple strings create multiple labels
-                        with half-cut between (required unless --image or
-                        --status is used)
+usage: ptouch [-h] [--image FILE] (--host IP | --usb [URI]) [--serial SERIAL]
+              [--printer {...}] [--tape-width {...} | --tube-width {...}]
+              [--font PATH] [--font-size PX] [--align H V] [--high-resolution]
+              [--margin MM] [--no-margin] [--no-compression] [--full-cut]
+              [--chain] [--mirror] [--precut] [--copies N] [--width MM]
+              [--status] [--list-connected] [--scan [CIDR]] [--json]
+              [--snmp-community COMMUNITY] [--snmp-version {1,2c}] [--version]
+              [text ...]
 
 options:
   --image, -i FILE      Image file to print instead of text
-  --host, -H IP         Printer IP address for network connection
+  --host, -H IP         Printer IP address or hostname for network connection
   --usb                 Use USB connection
-  --printer, -p         Printer model (required for printing; required with --usb for status)
-  --tape-width, -t      Tape width in mm (required for printing)
-  --font, -f PATH       Path to TrueType font file (uses PIL default if not specified)
-  --font-size PX        Font size in pixels (disables auto-sizing to 80% of print height)
-  --align, -a H V       Horizontal and vertical alignment (default: center center)
+  --serial SERIAL       USB serial number when several printers are attached
+  --printer, -p         Printer model (auto-detected when omitted)
+  --tape-width, -t      Tape width in mm (auto-detected when omitted)
+  --tube-width, -T      Heat shrink tube diameter in mm
+  --font, -f PATH       Path to TrueType font file
+  --font-size PX        Font size in pixels
+  --align, -a H V       Horizontal and vertical alignment
   --high-resolution     Enable high resolution mode
-  --margin, -m MM       Margin in mm (default: 2mm)
+  --margin, -m MM       Feed margin in mm (default: 2mm); 0 omits it
+  --no-margin           Print images exactly as supplied
   --no-compression      Disable TIFF compression
   --full-cut            Use full cuts between labels instead of half-cuts
-  --precut              Eject the ~24mm leader between the print head and
-                        cutter as a scrap before the first label, so the
-                        label starts at a fresh cut edge with no blank tape
+  --chain               Do not feed and cut after the final label
+  --mirror              Mirror the printed image
+  --precut              Eject the leader as a scrap before the first label
   --copies, -c N        Number of copies to print (default: 1)
-  --width, -w MM        Fixed label width in mm (default: auto-sized to content)
-  --status              Query printer status (media type/width, errors) instead of printing
-  --json                Print status as JSON (requires --status)
-  --snmp-community      SNMP read community for network status queries (default: public)
-  --snmp-version        SNMP version for network status queries: 1 or 2c (default: 2c)
+  --width, -w MM        Fixed label width in mm
+  --status              Query printer status instead of printing
+  --list-connected      List Brother printers attached over USB
+  --scan [CIDR]         Find Brother printers on the network with SNMP
+  --json                Print status, scan or USB list as JSON
+  --snmp-community      SNMP read community (default: public)
+  --snmp-version        SNMP version: 1 or 2c (default: 2c)
+  --version             Show the version and exit
 ```
 
 > **Note:** Status queries over the network use SNMP because Brother's raw

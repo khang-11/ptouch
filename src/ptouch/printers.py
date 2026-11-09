@@ -35,6 +35,7 @@ class PTE550W(LabelPrinter):
     """
 
     USB_PRODUCT_ID = 0x2060
+    MODEL_NAME = "PT-E550W"
     TOTAL_PINS = 128
     BYTES_PER_LINE = 16
     RESOLUTION_DPI = 180
@@ -74,6 +75,7 @@ class PTP750W(PTE550W):
     """
 
     USB_PRODUCT_ID = 0x2065
+    MODEL_NAME = "PT-P750W"
 
 
 class PTP710BT(PTE550W):
@@ -87,6 +89,7 @@ class PTP710BT(PTE550W):
     """
 
     USB_PRODUCT_ID = 0x20AF
+    MODEL_NAME = "PT-P710BT"
 
     # PT-P710BT does not support half-cut (basic consumer model — half-cut
     # is a feature of the higher-end PT-E / PT-P series). The firmware
@@ -149,18 +152,21 @@ class PTP900(PTP900Series):
     """Brother PT-P900 label printer (USB only, no wireless)."""
 
     USB_PRODUCT_ID = 0x2083
+    MODEL_NAME = "PT-P900"
 
 
 class PTP900W(PTP900Series):
     """Brother PT-P900W label printer (with Wi-Fi)."""
 
     USB_PRODUCT_ID = 0x2085
+    MODEL_NAME = "PT-P900W"
 
 
 class PTP950NW(PTP900Series):
     """Brother PT-P950NW label printer (with network connectivity)."""
 
     USB_PRODUCT_ID = 0x2086
+    MODEL_NAME = "PT-P950NW"
 
 
 class PTP910BT(PTP900Series):
@@ -170,6 +176,7 @@ class PTP910BT(PTP900Series):
     """
 
     USB_PRODUCT_ID = 0x20C7
+    MODEL_NAME = "PT-P910BT"
 
     # PT-P910BT only supports laminated tapes, not heat shrink tubes
     PIN_CONFIGS = {

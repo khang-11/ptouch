@@ -37,6 +37,21 @@ from .connection import (
     PrinterWriteError,
     parse_usb_uri,
 )
+from .detect import (
+    PRINTER_TYPES,
+    TAPE_WIDTHS,
+    TUBE_WIDTHS,
+    default_local_cidr,
+    discover_usb,
+    enrich_status,
+    max_pixel_width,
+    normalize_model_name,
+    printer_class_for_model,
+    printer_class_for_usb_product_id,
+    resolve_media_class,
+    scan_network,
+    tape_pixel_height,
+)
 from .label import Align, Label, TextLabel
 from .printer import LabelPrinter, MediaType, TapeConfig
 from .printers import PTE550W, PTP710BT, PTP750W, PTP900, PTP900W, PTP910BT, PTP950NW
@@ -81,7 +96,7 @@ from .tape import (
     Tape36mm,
 )
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     # Version
@@ -93,6 +108,20 @@ __all__ = [
     "PhaseType",
     # Config
     "TapeConfig",
+    # Detection
+    "PRINTER_TYPES",
+    "TAPE_WIDTHS",
+    "TUBE_WIDTHS",
+    "normalize_model_name",
+    "printer_class_for_model",
+    "printer_class_for_usb_product_id",
+    "resolve_media_class",
+    "max_pixel_width",
+    "tape_pixel_height",
+    "enrich_status",
+    "default_local_cidr",
+    "scan_network",
+    "discover_usb",
     # Connections
     "Connection",
     "ConnectionUSB",

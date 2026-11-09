@@ -256,6 +256,7 @@ class ConnectionUSB(Connection):
         self._product_id = product_id
         self._serial = serial
         self.timeout = timeout
+        self.serial_number: str | None = None
         self._device: Any = None
         self._ep_in: Any = None
         self._ep_out: Any = None
@@ -316,6 +317,11 @@ class ConnectionUSB(Connection):
                 f"USB printer with product ID 0x{product_id:04X} not found. "
                 "Check if the printer is connected and powered on."
             )
+
+        try:
+            self.serial_number = self._device.serial_number
+        except Exception:  # noqa: BLE001 - some devices deny the descriptor
+            self.serial_number = None
 
         try:
             interface = self._device[0].interfaces()[0]
