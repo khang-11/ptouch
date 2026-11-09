@@ -123,6 +123,10 @@ class PrinterStatus:
         Raw battery level byte (byte 6).
     errors : tuple of str
         Decoded error messages. Empty when the printer reports no errors.
+    error_info_1 : int or None
+        Raw error information 1 byte (byte 8).
+    error_info_2 : int or None
+        Raw error information 2 byte (byte 9).
     display_status : str or None
         Device status text reported by the Printer MIB display object.
     status_type : int or None
@@ -137,6 +141,16 @@ class PrinterStatus:
         Raw text colour code (byte 25).
     model_code : int or None
         Raw model code from byte 4 of the status block.
+    dpi : int or None
+        Printer resolution in DPI, when the model is known.
+    max_px : int or None
+        Maximum printable width in pixels, when the model is known.
+    tape_px : int or None
+        Printable height of the loaded media in pixels, when known.
+    connected : bool
+        Whether the printer answered the status request.
+    message : str or None
+        Additional human-readable status message, when one was set.
     raw : bytes
         The 32-byte status block, when one was returned.
     source : str
@@ -152,6 +166,8 @@ class PrinterStatus:
     media_length_mm: int | None = None
     battery_level: int | None = None
     errors: tuple[str, ...] = ()
+    error_info_1: int | None = None
+    error_info_2: int | None = None
     display_status: str | None = None
     status_type: int | None = None
     phase_type: int | None = None
@@ -159,6 +175,11 @@ class PrinterStatus:
     tape_color: int | None = None
     text_color: int | None = None
     model_code: int | None = None
+    dpi: int | None = None
+    max_px: int | None = None
+    tape_px: int | None = None
+    connected: bool = True
+    message: str | None = None
     raw: bytes = b""
     source: str = "vendor-status"
 
@@ -183,8 +204,38 @@ class PrinterStatus:
         return MEDIA_TYPE_LABELS.get(media_type, media_type.name.lower())
 
     @property
+    def model_name(self) -> str | None:
+        """Short model name, e.g. ``"PT-P900W"`` instead of the description."""
+        if not self.model:
+            return None
+        match = re.search(r"PT-?[A-Z0-9]+", self.model.upper())
+        if match:
+            return match.group(0)
+        return self.model.strip()
+
+    @property
+    def error_code(self) -> int | None:
+        """Combined 16-bit error code: error information 1 in the low byte."""
+        if self.error_info_1 is None and self.error_info_2 is None:
+            return None
+        return (self.error_info_1 or 0) | ((self.error_info_2 or 0) << 8)
+
+    @property
+    def ready(self) -> bool:
+        """Whether the printer is connected, has media and reports no error."""
+        if not self.connected or self.is_error:
+            return False
+        if self.media_type is MediaType.NO_MEDIA:
+            return False
+        if self.media_width_mm is None or self.media_width_mm <= 0:
+            return False
+        return True
+
+    @property
     def device_status(self) -> str:
         """Device status, e.g. ``"READY"`` or ``"ERROR"``."""
+        if not self.connected:
+            return "NOT CONNECTED"
         if self.errors:
             return "ERROR"
         if self.display_status:
@@ -275,6 +326,8 @@ def parse_status_response(
         media_length_mm=data[17],
         battery_level=data[6],
         errors=errors,
+        error_info_1=data[8],
+        error_info_2=data[9],
         status_type=data[18],
         phase_type=data[19],
         phase_number=(data[20] << 8) | data[21],
@@ -360,7 +413,8 @@ def query_status_snmp(
     raw = varbinds.get(SNMP_VENDOR_STATUS_OID)
 
     if isinstance(raw, bytes) and len(raw) >= STATUS_RESPONSE_LENGTH:
-        return parse_status_response(raw, model=model, serial=serial)
+        status = parse_status_response(raw, model=model, serial=serial)
+        return _enrich(status)
 
     media_name = _decode_snmp_string(varbinds.get(SNMP_INPUT_MEDIA_NAME_OID))
     display = _decode_snmp_string(varbinds.get(SNMP_CONSOLE_DISPLAY_OID))
@@ -370,13 +424,22 @@ def query_status_snmp(
             f"(vendor OID {SNMP_VENDOR_STATUS_OID} and Printer MIB objects are missing)"
         )
 
-    return PrinterStatus(
-        model=model,
-        serial=serial,
-        media_width_mm=parse_media_name(media_name),
-        display_status=display,
-        source="printer-mib",
+    return _enrich(
+        PrinterStatus(
+            model=model,
+            serial=serial,
+            media_width_mm=parse_media_name(media_name),
+            display_status=display,
+            source="printer-mib",
+        )
     )
+
+
+def _enrich(status: PrinterStatus) -> PrinterStatus:
+    """Add model-specific fields without a circular module import."""
+    from .detect import enrich_status
+
+    return enrich_status(status)
 
 
 def snmp_get(
