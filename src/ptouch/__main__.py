@@ -5,6 +5,7 @@
 """CLI interface for Brother P-touch label printers."""
 
 import argparse
+import json
 import sys
 from typing import Sequence
 
@@ -43,6 +44,7 @@ from . import (
     parse_usb_uri,
 )
 from .printer import LabelPrinter
+from .status import PrinterStatus, query_status_snmp
 
 # Mapping of tape width (mm) to tape classes
 TAPE_WIDTHS = {
@@ -139,6 +141,12 @@ Examples:
 
   # Print on heat shrink tube (3:1 series, 31mm)
   ptouch "Power" --host 192.168.1.100 --printer P950NW --tube-width 31
+
+  # Query printer status (media type/width and errors) via network
+  ptouch --status --host 192.168.1.100
+
+  # Query printer status via USB
+  ptouch --status --usb --printer P900W
 """,
     )
 
@@ -177,13 +185,12 @@ Examples:
     parser.add_argument(
         "--printer",
         "-p",
-        required=True,
         choices=list(set(PRINTER_TYPES.keys())),
         help="Printer model",
     )
 
     # Tape or tube (mutually exclusive)
-    media_group = parser.add_mutually_exclusive_group(required=True)
+    media_group = parser.add_mutually_exclusive_group()
     media_group.add_argument(
         "--tape-width",
         "-t",
@@ -272,6 +279,30 @@ Examples:
         help="Fixed label width in mm (default: auto-sized to content)",
     )
 
+    # Status query
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Query printer status (media type/width, errors) instead of printing",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print status as JSON (requires --status)",
+    )
+    parser.add_argument(
+        "--snmp-community",
+        metavar="COMMUNITY",
+        default="public",
+        help="SNMP read community for network status queries (default: public)",
+    )
+    parser.add_argument(
+        "--snmp-version",
+        choices=["1", "2c"],
+        default="2c",
+        help="SNMP version for network status queries (default: 2c)",
+    )
+
     return parser.parse_args()
 
 
@@ -326,9 +357,121 @@ def create_text_labels(
     ]
 
 
+def _format_media_width(width_mm: float | None) -> str:
+    """Format a media width in millimetres and inches."""
+    if width_mm is None:
+        return "unknown"
+    return f'{width_mm:g} mm ({width_mm / 25.4:.2f}")'
+
+
+def _status_to_dict(status: PrinterStatus) -> dict[str, object]:
+    """Convert a PrinterStatus to a JSON-serializable dictionary."""
+    return {
+        "printer": status.model,
+        "serial": status.serial,
+        "device_status": status.device_status,
+        "media_status": status.media_status,
+        "media_type": status.media_type_label,
+        "media_type_code": status.media_type_code,
+        "media_width_mm": status.media_width_mm,
+        "media_length_mm": status.media_length_mm,
+        "battery_level": status.battery_level,
+        "errors": list(status.errors),
+        "source": status.source,
+    }
+
+
+def print_status(status: PrinterStatus, *, as_json: bool = False) -> None:
+    """Print printer status as human-readable text or JSON."""
+    if as_json:
+        print(json.dumps(_status_to_dict(status), indent=2))
+        return
+
+    lines = [
+        f"Printer:        {status.model or 'unknown'}",
+        f"Serial:         {status.serial or 'unknown'}",
+        f"Device status:  {status.device_status}",
+        f"Media status:   {status.media_status}",
+        f"Media type:     {status.media_type_label}",
+        f"Media width:    {_format_media_width(status.media_width_mm)}",
+    ]
+    if status.media_length_mm:
+        lines.append(f"Media length:   {status.media_length_mm} mm")
+    if status.battery_level is not None:
+        lines.append(f"Battery:        {status.battery_level}")
+    if status.errors:
+        lines.append(f"Errors:         {', '.join(status.errors)}")
+    else:
+        lines.append("Errors:         none")
+    print("\n".join(lines))
+
+
+def _make_connection(args: argparse.Namespace) -> ConnectionNetwork | ConnectionUSB:
+    """Create a connection from parsed command-line arguments."""
+    if args.host:
+        return ConnectionNetwork(args.host)
+    if args.usb is True:
+        return ConnectionUSB()
+    vendor_id, product_id, serial = parse_usb_uri(args.usb)
+    return ConnectionUSB(vendor_id=vendor_id, product_id=product_id, serial=serial)
+
+
+def _run_status(args: argparse.Namespace) -> int:
+    """Query the printer status and print it."""
+    try:
+        if args.host:
+            status = query_status_snmp(
+                args.host,
+                community=args.snmp_community,
+                version=args.snmp_version,
+            )
+        else:
+            if not args.printer:
+                print("Error: --printer is required for USB status queries", file=sys.stderr)
+                return 1
+            connection = _make_connection(args)
+            printer = PRINTER_TYPES[args.printer](connection)
+            status = printer.get_status(
+                community=args.snmp_community,
+                snmp_version=args.snmp_version,
+            )
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print_status(status, as_json=args.json)
+    return 0
+
+
 def main() -> int:
     """Run the command-line interface."""
     args = parse_args()
+
+    # Status queries do not print and do not need a printer model or media
+    # class over the network.
+    if args.status:
+        if args.text or args.image:
+            print("Error: Cannot combine --status with text or --image", file=sys.stderr)
+            return 1
+        if args.tape_width is not None or args.tube_width is not None:
+            print(
+                "Error: Cannot combine --status with --tape-width or --tube-width",
+                file=sys.stderr,
+            )
+            return 1
+        return _run_status(args)
+
+    if args.json:
+        print("Error: --json requires --status", file=sys.stderr)
+        return 1
+
+    if not args.printer:
+        print("Error: --printer is required when printing", file=sys.stderr)
+        return 1
+
+    if args.tape_width is None and args.tube_width is None:
+        print("Error: Specify either --tape-width or --tube-width", file=sys.stderr)
+        return 1
 
     # Validate arguments
     if args.image and args.text:
@@ -365,23 +508,11 @@ def main() -> int:
             return 1
 
     # Create connection
-    if args.host:
-        connection = ConnectionNetwork(args.host)
-    elif args.usb is True:
-        # --usb without URI
-        connection = ConnectionUSB()
-    else:
-        # --usb with URI
-        try:
-            vendor_id, product_id, serial = parse_usb_uri(args.usb)
-            connection = ConnectionUSB(
-                vendor_id=vendor_id,
-                product_id=product_id,
-                serial=serial,
-            )
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
+    try:
+        connection = _make_connection(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     # Create printer
     use_compression = not args.no_compression

@@ -10,11 +10,12 @@ from abc import ABC
 from dataclasses import dataclass
 from enum import Enum
 from math import ceil
+from typing import TYPE_CHECKING
 
 import packbits
 from PIL import Image
 
-from .connection import Connection
+from .connection import Connection, ConnectionNetwork
 from .label import Label
 from .tape import (
     HeatShrinkTube,
@@ -25,6 +26,9 @@ from .tape import (
     HeatShrinkTube3_1_31_0mm,
     Tape,
 )
+
+if TYPE_CHECKING:
+    from .status import PrinterStatus
 
 
 @dataclass
@@ -52,7 +56,10 @@ class MediaType(Enum):
     NO_MEDIA = 0x00
     LAMINATED_TAPE = 0x01
     NONLAMINATED_TAPE = 0x03
+    FABRIC_TAPE = 0x04
     HEATSHRINK_TUBE_21 = 0x11  # 2:1 shrink ratio
+    FLE_TAPE = 0x13
+    FLEXIBLE_ID_TAPE = 0x14
     HEATSHRINK_TUBE_31 = 0x17  # 3:1 shrink ratio
     INCOMPATIBLE_TAPE = 0xFF
 
@@ -234,6 +241,14 @@ class LabelPrinter(ABC):
     def _cmd_invalidate_and_initialize(self) -> bytes:
         """Send invalidate followed by initialize commands."""
         return self._cmd_invalidate() + self._cmd_initialize()
+
+    def _cmd_status_request(self) -> bytes:
+        """Request printer status (ESC i S).
+
+        The printer answers with a fixed 32-byte status block, which is
+        parsed by :meth:`get_status`.
+        """
+        return struct.pack("BBB", 0x1B, 0x69, 0x53)
 
     def _cmd_raster_mode(self) -> bytes:
         """Set printer to raster graphics mode (ESC i a)."""
@@ -631,6 +646,59 @@ class LabelPrinter(ABC):
         self.connection.write(control_seq)
         self.connection.write(b"\x1a")  # print and feed → triggers the cut
         logger.info("Precut: leader ejected.")
+
+    def get_status(
+        self,
+        *,
+        community: str = "public",
+        snmp_version: str = "2c",
+        timeout: float = 3.0,
+    ) -> "PrinterStatus":
+        """Query the current printer status.
+
+        Over USB the status request command (``ESC i S``) is answered by the
+        printer with a 32-byte status block. Over the network the raw print
+        port is one-way, so the same block is fetched over SNMP instead.
+
+        Parameters
+        ----------
+        community : str, default "public"
+            SNMP read community (network connections only).
+        snmp_version : str, default "2c"
+            SNMP version, either ``"1"`` or ``"2c"`` (network only).
+        timeout : float, default 3.0
+            SNMP request timeout in seconds (network only).
+
+        Returns
+        -------
+        PrinterStatus
+            Media, battery and error information reported by the printer.
+
+        Raises
+        ------
+        PrinterTimeoutError
+            If the printer does not answer the status request over USB.
+        SnmpError
+            If the status could not be queried over SNMP.
+        """
+        from .status import STATUS_RESPONSE_LENGTH, parse_status_response, query_status_snmp
+
+        if isinstance(self.connection, ConnectionNetwork):
+            return query_status_snmp(
+                self.connection.host,
+                community=community,
+                version=snmp_version,
+                timeout=timeout,
+            )
+
+        self.connection.write(self._cmd_status_request())
+        data = b""
+        while len(data) < STATUS_RESPONSE_LENGTH:
+            chunk = self.connection.read(STATUS_RESPONSE_LENGTH - len(data))
+            if not chunk:
+                break
+            data += chunk
+        return parse_status_response(data)
 
     def _resolve_feature(
         self,

@@ -396,6 +396,66 @@ All exceptions preserve the original error:
        if e.original_error:
            print(f"Original: {e.original_error}")
 
+Printer Status
+--------------
+
+Query the loaded media type and width, battery level and error flags before
+printing.
+
+Command Line
+~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Network printer (uses SNMP)
+   ptouch --status --host 192.168.1.100
+
+   # Machine-readable output
+   ptouch --status --host 192.168.1.100 --json
+
+   # USB printer
+   ptouch --status --usb --printer P900W
+
+The human-readable output includes the model and serial number, device status,
+media status, media type, media width, battery level and any active errors.
+
+Network printers are queried over SNMP because Brother's raw print port
+(TCP 9100) only accepts print data and never returns a status response. The
+vendor status object returns the same 32-byte status block as the USB status
+command; if it is unavailable, the standard Printer MIB media name and console
+display objects are used as a fallback.
+
+Python
+~~~~~~
+
+.. code-block:: python
+
+   from ptouch import ConnectionNetwork, PTP900W, query_status_snmp
+
+   # Network: no print connection is opened
+   status = query_status_snmp("192.168.1.100")
+
+   print(status.device_status)     # READY
+   print(status.media_status)      # Not Empty
+   print(status.media_type_label)  # laminated tape
+   print(status.media_width_mm)    # 24.0
+   print(status.errors)            # ()
+
+   # Or use the printer instance; network connections dispatch to SNMP
+   connection = ConnectionNetwork("192.168.1.100")
+   printer = PTP900W(connection)
+   status = printer.get_status()
+
+The :class:`ptouch.PrinterStatus` object exposes:
+
+* ``device_status`` - ``READY``, ``ERROR`` or the printer's display text
+* ``media_status`` - ``Not Empty``, ``Empty`` or ``Unknown``
+* ``media_type`` / ``media_type_label`` - e.g. laminated tape, heat-shrink
+  tube, FLe tape, flexible ID tape
+* ``media_width_mm`` and ``media_length_mm``
+* ``battery_level``
+* ``errors`` - decoded error flag descriptions
+
 Next Steps
 ----------
 
